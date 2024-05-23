@@ -1,14 +1,16 @@
 package bootstrap
 
-import "log"
+import (
+	"database/sql"
+	"log"
+)
 
 /*
 El bootstrap es el encargado de inicializar las dependencias de la aplicación.
 */
 
 import (
-	"Apis/internal/domain"
-	"Apis/internal/users"
+	_ "github.com/go-sql-driver/mysql"
 	"os"
 )
 
@@ -16,29 +18,12 @@ func NewLogger() *log.Logger {
 	return log.New(os.Stdout, "", log.Lshortfile|log.LstdFlags)
 }
 
-func NewDB() users.DB {
-	return users.DB{
-		Users: []domain.Users{
-			{
-				ID:        1,
-				FirstName: "John",
-				LastName:  "Doe",
-				Email:     "johndoe@gmail.com",
-			},
-			{
-				ID:        2,
-				FirstName: "Jane",
-				LastName:  "Finn",
-				Email:     "janefinn@gmail.com",
-			},
-			{
-				ID:        3,
-				FirstName: "Alice",
-				LastName:  "Smith",
-				Email:     "alicesmith@gmail.com",
-			},
-		},
+func NewDB() (*sql.DB, error) {
 
-		MaxUserID: 3,
+	db, err := sql.Open("mysql", "root:root@tcp(127.0.0.1:3336)/go_course")
+
+	if err != nil {
+		return nil, err
 	}
+	return db, nil
 }

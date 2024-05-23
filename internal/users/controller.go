@@ -55,7 +55,7 @@ func makeUpdateUserEndPoints(s Service) Controller {
 			return nil, response.BadRequest(ErrLastNameIsRequired.Error())
 		}
 
-		u, err := s.Update(ctx, req.ID, req.FirstName, req.LastName, req.Email)
+		err := s.Update(ctx, req.ID, req.FirstName, req.LastName, req.Email)
 
 		if err != nil {
 			if errors.As(err, &ErrNotFound{}) {
@@ -64,7 +64,7 @@ func makeUpdateUserEndPoints(s Service) Controller {
 			return nil, response.InternalServerError(err.Error())
 		}
 
-		return response.OK("success", u), nil
+		return response.OK("updated", nil), nil
 	}
 }
 

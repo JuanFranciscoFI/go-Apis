@@ -12,7 +12,17 @@ import (
 func main() {
 	server := http.NewServeMux() // Create a new server
 
-	db := bootstrap.NewDB()
+	db, err := bootstrap.NewDB()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
 	logger := bootstrap.NewLogger()
 
 	repo := users.NewRepo(db, logger)

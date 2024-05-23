@@ -16,7 +16,7 @@ type (
 		Create(ctx context.Context, firstName, lastName, email string) (*domain.Users, error)
 		GetAll(ctx context.Context) ([]domain.Users, error)
 		GetByID(ctx context.Context, id uint64) (*domain.Users, error)
-		Update(ctx context.Context, id uint64, firstName, lastName, email *string) (*domain.Users, error)
+		Update(ctx context.Context, id uint64, firstName, lastName, email *string) error
 	}
 
 	service struct {
@@ -58,7 +58,7 @@ func (s *service) GetAll(ctx context.Context) ([]domain.Users, error) {
 	return s.repo.GetAll(ctx)
 }
 
-func (s *service) Update(ctx context.Context, id uint64, firstName, lastName, email *string) (*domain.Users, error) {
+func (s *service) Update(ctx context.Context, id uint64, firstName, lastName, email *string) error {
 	s.log.Println("Service update")
 	return s.repo.Update(ctx, id, firstName, lastName, email)
 }

@@ -7,7 +7,7 @@ import (
 
 var ErrFirstNameIsRequired = errors.New("first name is required")
 var ErrLastNameIsRequired = errors.New("last name is required")
-var ErrMarshalling = errors.New("error marshalling response")
+var ErrSliceIsEmpty = errors.New("the slice is empty")
 
 type ErrNotFound struct {
 	ID uint64

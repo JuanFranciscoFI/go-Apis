@@ -2,7 +2,9 @@ package users
 
 import (
 	"Apis/internal/domain"
-	"slices"
+	"database/sql"
+	"errors"
+	"strings"
 )
 
 /*
@@ -24,16 +26,16 @@ type (
 		Create(ctx context.Context, user *domain.Users) error
 		GetAll(ctx context.Context) ([]domain.Users, error)
 		GetByID(ctx context.Context, id uint64) (*domain.Users, error)
-		Update(ctx context.Context, id uint64, firstName, lastName, email *string) (*domain.Users, error)
+		Update(ctx context.Context, id uint64, firstName, lastName, email *string) error
 	}
 
 	repo struct {
-		db  DB
+		db  *sql.DB
 		log *log.Logger
 	}
 )
 
-func NewRepo(db DB, l *log.Logger) Repository {
+func NewRepo(db *sql.DB, l *log.Logger) Repository {
 	return &repo{
 		db:  db,
 		log: l,
@@ -41,49 +43,115 @@ func NewRepo(db DB, l *log.Logger) Repository {
 }
 
 func (r *repo) Create(ctx context.Context, u *domain.Users) error {
-	r.db.MaxUserID++
-	u.ID = r.db.MaxUserID
-	r.db.Users = append(r.db.Users, *u)
+	sqlQ := "INSERT INTO users (first_name, last_name, email) VALUES (?,?,?)"
+	res, err := r.db.Exec(sqlQ, u.FirstName, u.LastName, u.Email)
 
-	r.log.Println("Repository create")
+	if err != nil {
+		r.log.Println(err.Error())
+		return err
+	}
+
+	id, err := res.LastInsertId()
+
+	if err != nil {
+		r.log.Println(err.Error())
+		return err
+	}
+
+	u.ID = uint64(id)
+	r.log.Println("user created with id: ", id)
+
 	return nil
 }
 
 func (r *repo) GetAll(ctx context.Context) ([]domain.Users, error) {
-	r.log.Println("Repository get all")
-	return r.db.Users, nil
-}
+	var users []domain.Users
 
-func (r *repo) GetByID(ctx context.Context, id uint64) (*domain.Users, error) {
-	index := slices.IndexFunc(r.db.Users, func(v domain.Users) bool {
-		return v.ID == id
-	})
+	sqlQ := "SELECT * FROM users"
 
-	if index == -1 {
-		return nil, ErrNotFound{id}
-	}
-
-	return &r.db.Users[index], nil
-}
-
-func (r *repo) Update(ctx context.Context, id uint64, firstName, lastName, email *string) (*domain.Users, error) {
-	user, err := r.GetByID(ctx, id)
+	rows, err := r.db.Query(sqlQ)
 
 	if err != nil {
+		r.log.Println(err.Error())
 		return nil, err
 	}
 
+	defer rows.Close()
+
+	for rows.Next() {
+		var u domain.Users
+		err := rows.Scan(&u.ID, &u.FirstName, &u.LastName, &u.Email)
+		if err != nil {
+			r.log.Println(err.Error())
+			return nil, err
+		}
+		users = append(users, u)
+	}
+
+	r.log.Println("users found: ", len(users))
+	return users, nil
+}
+
+func (r *repo) GetByID(ctx context.Context, id uint64) (*domain.Users, error) {
+	var u domain.Users
+
+	sqlQ := "SELECT * FROM users WHERE id = ?"
+
+	err := r.db.QueryRow(sqlQ, id).Scan(&u.ID, &u.FirstName, &u.LastName, &u.Email)
+
+	if err != nil {
+		r.log.Println(err.Error())
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound{}
+		}
+		return nil, err
+	}
+
+	r.log.Println("user found with id: ", id)
+
+	return &u, nil
+}
+
+func (r *repo) Update(ctx context.Context, id uint64, firstName, lastName, email *string) error {
+	var fields []string
+	var values []interface{}
+
 	if firstName != nil {
-		user.FirstName = *firstName
+		fields = append(fields, "first_name=?")
+		values = append(values, *firstName)
 	}
 
 	if lastName != nil {
-		user.LastName = *lastName
+		fields = append(fields, "last_name=?")
+		values = append(values, *lastName)
 	}
 
-	if email != nil {
-		user.Email = *email
+	if len(fields) == 0 {
+		r.log.Println(ErrSliceIsEmpty.Error())
+		return ErrSliceIsEmpty
 	}
 
-	return user, nil
+	values = append(values, id)
+
+	sqlQ := "UPDATE users SET " + strings.Join(fields, ", ") + " WHERE id = ?"
+
+	ans, err := r.db.Exec(sqlQ, values...)
+
+	if err != nil {
+		r.log.Println(err.Error())
+		return err
+	}
+
+	row, err := ans.RowsAffected()
+
+	if err != nil {
+		r.log.Println(err.Error())
+		return err
+	}
+
+	if row == 0 {
+		return ErrNotFound{ID: id}
+	}
+
+	return nil
 }
