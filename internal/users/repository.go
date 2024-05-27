@@ -102,7 +102,7 @@ func (r *repo) GetByID(ctx context.Context, id uint64) (*domain.Users, error) {
 	if err != nil {
 		r.log.Println(err.Error())
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound{}
+			return nil, ErrNotFound{id}
 		}
 		return nil, err
 	}

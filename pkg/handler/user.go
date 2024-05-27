@@ -3,81 +3,42 @@ package handler
 import (
 	"Apis/internal/users"
 	"Apis/pkg/transport"
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/JuanFranciscoFI/apiResponse/response"
-	"log"
+	"github.com/gin-gonic/gin"
 	"net/http"
+	"os"
 	"strconv"
 )
 
-func NewUserHTTPServer(ctx context.Context, router *http.ServeMux, endpoints users.EndPoints) {
-	router.HandleFunc("/users/", UserServer(ctx, endpoints))
+func NewUserHTTPServer(endpoints users.EndPoints) http.Handler {
+	r := gin.Default()
+
+	r.POST("/users", transport.GinServer(transport.EndPoint(endpoints.Create), decodePostUserRequest, encodeResponse, encodeError))
+
+	r.GET("/users", transport.GinServer(transport.EndPoint(endpoints.GetAll), decodeGetAllUsersRequest, encodeResponse, encodeError))
+
+	r.GET("/users/:userID", transport.GinServer(transport.EndPoint(endpoints.GetByID), decodeGetUserRequest, encodeResponse, encodeError))
+
+	r.PATCH("/users/:userID", transport.GinServer(transport.EndPoint(endpoints.Update), decodeUpdateUserRequest, encodeResponse, encodeError))
+
+	return r
 }
 
-func UserServer(ctx context.Context, endpoints users.EndPoints) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		url := r.URL.Path
-		log.Println("URL: ", url)
-
-		path, pathSize := transport.Clean(url)
-
-		params := make(map[string]string)
-
-		if pathSize == 4 && path[2] != "" {
-			params["userID"] = path[2]
-		}
-		t := transport.New(w, r, context.WithValue(ctx, "params", params))
-
-		var end transport.EndPoint
-		var deco func(ctx context.Context, r *http.Request) (interface{}, error)
-
-		switch r.Method {
-		case http.MethodGet:
-			switch pathSize {
-			case 3:
-				end = transport.EndPoint(endpoints.GetAll)
-				deco = decodeGetAllUsersRequest
-			case 4:
-				end = transport.EndPoint(endpoints.GetByID)
-				deco = decodeGetUserRequest
-			}
-		case http.MethodPost:
-			switch pathSize {
-			case 3:
-				end = transport.EndPoint(endpoints.Create)
-				deco = decodePostUserRequest
-			}
-		case http.MethodPatch:
-			switch pathSize {
-			case 4:
-				end = transport.EndPoint(endpoints.Update)
-				deco = decodeUpdateUserRequest
-			}
-		default:
-			InvalidMethod(w)
-		}
-		if end != nil && deco != nil {
-			t.Server(end, deco, encodeResponse, encodeError)
-		}
-	}
-
-}
-
-func decodeUpdateUserRequest(ctx context.Context, r *http.Request) (interface{}, error) {
+func decodeUpdateUserRequest(c *gin.Context) (interface{}, error) {
 	var req users.UpdateRequest
-	decode := json.NewDecoder(r.Body)
-	err := decode.Decode(&req)
 
-	if err != nil {
-		return nil, fmt.Errorf("error decoding request: %v", err)
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		return nil, response.BadRequest(err.Error())
 	}
 
-	params := ctx.Value("params").(map[string]string)
+	if err := tokenVerify(c.Request.Header.Get("Authorization")); err != nil {
+		return nil, response.Unauthorized(err.Error())
 
-	id, err := strconv.ParseUint(params["userID"], 10, 64)
+	}
+
+	id, err := strconv.ParseUint(c.Params.ByName("userID"), 10, 64)
 
 	if err != nil {
 		return nil, fmt.Errorf("error parsing id: %v", err)
@@ -88,20 +49,25 @@ func decodeUpdateUserRequest(ctx context.Context, r *http.Request) (interface{},
 	return req, nil
 }
 
-func decodePostUserRequest(ctx context.Context, r *http.Request) (interface{}, error) {
-	var req users.Request
-	decode := json.NewDecoder(r.Body)
-	err := decode.Decode(&req)
-	if err != nil {
-		return nil, err
+func decodePostUserRequest(c *gin.Context) (interface{}, error) {
+	if err := tokenVerify(c.Request.Header.Get("Authorization")); err != nil {
+		return nil, response.Unauthorized(err.Error())
 	}
+
+	var req users.Request
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		return nil, response.BadRequest(err.Error())
+	}
+
 	return req, nil
 }
 
-func decodeGetUserRequest(ctx context.Context, r *http.Request) (interface{}, error) {
-	param := ctx.Value("params").(map[string]string)
+func decodeGetUserRequest(c *gin.Context) (interface{}, error) {
+	if err := tokenVerify(c.Request.Header.Get("Authorization")); err != nil {
+		return nil, response.Unauthorized(err.Error())
+	}
 
-	id, err := strconv.ParseUint(param["userID"], 10, 64)
+	id, err := strconv.ParseUint(c.Params.ByName("userID"), 10, 64)
 
 	if err != nil {
 		return nil, err
@@ -110,27 +76,29 @@ func decodeGetUserRequest(ctx context.Context, r *http.Request) (interface{}, er
 	return users.GetReq{ID: id}, nil
 }
 
-func decodeGetAllUsersRequest(ctx context.Context, r *http.Request) (interface{}, error) {
+func decodeGetAllUsersRequest(c *gin.Context) (interface{}, error) {
+	if err := tokenVerify(c.Request.Header.Get("Authorization")); err != nil {
+		return nil, response.Unauthorized(err.Error())
+	}
+
 	return nil, nil
 }
 
-func encodeResponse(ctx context.Context, w http.ResponseWriter, resp interface{}) error {
+func tokenVerify(token string) error {
+	if os.Getenv("TOKEN") != token {
+		return response.Unauthorized("Invalid token")
+	}
+
+	return nil
+}
+
+func encodeResponse(c *gin.Context, resp interface{}) {
 	r := resp.(response.Response)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(r.StatusCode())
-
-	return json.NewEncoder(w).Encode(r)
+	c.Header("Content-Type", "application/json")
+	c.JSON(r.StatusCode(), resp)
 }
 
-func encodeError(_ context.Context, err error, w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "apllication/json")
-	resp := err.(response.Response)
-
-	w.WriteHeader(resp.StatusCode())
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func InvalidMethod(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusMethodNotAllowed)
-	http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+func encodeError(c *gin.Context, err error) {
+	c.Header("Content-Type", "application/json")
+	c.JSON(err.(response.Response).StatusCode(), err)
 }
